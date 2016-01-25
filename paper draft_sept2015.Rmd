@@ -1,0 +1,1138 @@
+---
+output: word_document
+---
+---
+title: "demographics and methods"
+author: "Nishant Sahni"
+date: "May 14, 2015"
+output: html_document
+
+
+
+Patient characteristics
+
+We analyzed 7451 PCT measurements in 5070 hospital encounters for 4279 unique adult patients. 422 of these encounters were determined to involve 321 unique solid organ transplant patients. Demographic and clinical characteristics of this cohort are provided in Table 1. The median age of patients was *** and ***% were male. 440 (5.5%) of these patients who had a PCT level obtained had a positive blood culture within 72 hours of the index PCT level.
+
+Of the total patients in the dataset 133 patients had a history of kidney transplant, 92 had a history of liver transplants, 49 had a history of heart transplant, 75 had a history of lung transplant and 27 had a history of pancreas transplant. Of the transplant patients, 36 (11.2%) of these had bacteremia with pathogenic strains. 
+
+```{r,echo=FALSE}
+library(dplyr)
+library(tidyr)
+library(pROC)
+library(ResourceSelection)
+new_db <- read.csv("~/Dropbox/mega_procal 2015/reneedfolderexported/new_db2")
+new_db<- mutate(new_db, sirs_score=(tachy+(fever|hypotherm)+(luekocytosis|leukopenia)+tachypnea))
+
+tbl_wbc <- new_db %>%  group_by(immunosuppresive) %>% summarise(median_wbc=median(max_wbc,na.rm = TRUE),iqr_wbc25=quantile(max_wbc,0.25,na.rm=TRUE),iqr_wbc75=quantile(max_wbc,0.75,na.rm=TRUE))
+tbl_temp <- new_db %>%  group_by(immunosuppresive) %>% summarise(median_temp=median(max_temp,na.rm = TRUE),iqr_temp25=quantile(max_temp,0.25,na.rm=TRUE),iqr_temp75=quantile(max_temp,0.75,na.rm=TRUE))
+tbl_rr<- new_db %>%  group_by(immunosuppresive) %>% summarise(median_rr=median(max_rr,na.rm = TRUE),iqr_rr25=quantile(max_rr,0.25,na.rm=TRUE),iqr_rr75=quantile(max_rr,0.75,na.rm=TRUE))
+tbl_hr<- new_db %>%  group_by(immunosuppresive) %>% summarise(median_hr=median(max_hr,na.rm = TRUE),iqr_hr25=quantile(max_hr,0.25,na.rm=TRUE),iqr_hr75=quantile(max_hr,0.75,na.rm=TRUE))
+
+```
+
+```{r demo table,eval=FALSE,echo=FALSE}
+length(unique(new_db$SERVICE_ID.x)) ## TOTAL UNIQUE ENCOUNTER IDS
+length(unique(new_db$PATIENT_ID)) ## total unique patients
+length(new_db$procal_corr) ## total procal measurements in the dataset
+
+# total bacteremic patients
+bac <- filter(new_db,unequivocal_pos==TRUE) # bacteremics
+
+length(unique(bac$PATIENT_ID)) # total unique bactermic patients
+
+immune_bac <- filter(bac,immunosuppresive==TRUE) ##total unique bactermic immunosuppresed patients 
+length(unique(immune_bac$PATIENT_ID))
+
+
+
+
+#total transplant patients
+txp<- filter(new_db,sot==TRUE) # total transplant
+length(unique(txp$PATIENT_ID)) ## NUMBER OF SOT PATIENTS 321
+
+## number of transplant patients that were bacteremic is 36
+txp_bac <- filter(txp,unequivocal_pos==TRUE)
+ length(unique(txp_bac$PATIENT_ID))
+
+## kidney tx
+kidney<- filter(new_db,kidneys==TRUE)
+length(unique(kidney$PATIENT_ID)) ## number of kidney transplant patients 133
+
+#total immune patients
+immune<- filter(new_db,immunosuppresive==TRUE) # total immunosuppresive
+length(unique(immune$PATIENT_ID)) ## NUMBER OF IMMUNOSUPPRESED PATIENTS 420
+
+## no sot code only on txp
+only_immune<- filter(new_db,immunosuppresive==TRUE & sot==FALSE )
+length(unique(only_immune$PATIENT_ID)) ## 136
+```
+
+
+```{r table1}
+
+
+#total transplant patients
+immunosup<- filter(new_db,immunosuppresive==TRUE) # total transplant
+length(unique(immunosup$PATIENT_ID)) ## NUMBER OF SOT PATIENTS 321
+
+## number of transplant patients that were bacteremic is 36
+immunosup_bac <- filter(immunosup,unequivocal_pos==TRUE)
+length(unique(immunosup_bac$PATIENT_ID))
+
+## kidney tx
+kidney<- filter(immunosup,kidneys==TRUE)
+length(unique(kidney$PATIENT_ID)) ## number of kidney transplant patients 133
+
+## liver txp
+livers<-  filter(immunosup,livers==TRUE)
+length(unique(livers$PATIENT_ID))
+
+### heart
+hearts<-  filter(immunosup,hearts==TRUE)
+length(unique(hearts$PATIENT_ID))
+
+## lungs
+lungs<-  filter(immunosup,lungs==TRUE)
+length(unique(lungs$PATIENT_ID))
+
+##
+pancreas<-  filter(immunosup,pancreas==TRUE)
+length(unique(pancreas$PATIENT_ID))
+#total immune patients
+immune<- filter(new_db,immunosuppresive==TRUE) # total immunosuppresive
+length(unique(immune$PATIENT_ID)) ## NUMBER OF IMMUNOSUPPRESED PATIENTS 420
+
+
+## no sot code only on immunosup
+only_immune<- filter(new_db,immunosuppresive==TRUE & sot==FALSE )
+length(unique(only_immune$PATIENT_ID)) ## 136
+
+## no immunosuppresion only sot code
+only_sot<- filter(new_db,immunosuppresive==FALSE & sot==TRUE )
+length(unique(only_sot$PATIENT_ID)) ## 136
+```
+
+```{r how many organs transplanted ?}
+
+sot<- filter(new_db, sot==TRUE)
+temp1 <- select(.data=sot,kidneys,livers,lungs,hearts,pancreas,PATIENT_ID)
+  temp2 <- unique(temp1)
+  temp3 <- temp2  %>% mutate(sot_score=kidneys+livers+lungs+hearts+pancreas) %>% group_by(PATIENT_ID) %>% mutate(max_ss=max(sot_score)) %>% filter(max_ss==sot_score) %>% unite(vs_am,kidneys,livers,lungs,hearts,pancreas,sep='_')
+  temp4 <- unique(temp3)
+  table(temp4$max_ss)
+```
+
+```{r how many organs transplanted in immunosuppresives}
+sot<- filter(new_db, immunosuppresive==TRUE)
+temp1 <- select(.data=sot,kidneys,livers,lungs,hearts,pancreas,PATIENT_ID)
+  temp2 <- unique(temp1)
+  temp3 <- temp2  %>% mutate(sot_score=kidneys+livers+lungs+hearts+pancreas) %>% group_by(PATIENT_ID) %>% mutate(max_ss=max(sot_score)) %>% select(max_ss,PATIENT_ID)
+  temp4 <- unique(temp3)
+  table(temp4$max_ss)
+```
+
+
+##Factors affecting the presence of a SIRS response in bacteremic patients.
+
+In patients with bacteremia, we performed a bivariate binomial logistic regression to identify variables that were associated with mounting a SIRS response; we found that higher serum log(PCT) levels were significantly associated with exhibiting a SIRS response (OR 1.05, CI 1.04-1.07, p<0.05). Bacteremic patients with a history of solid organ transplantation had a reduced likelihood of exhibiting a SIRS response. (Odds ratio 0.88 , CI: 0.84-0.91, P <0.05).
+
+
+```{r Factors affecting the presence of a SIRS response in bacteremic patients.,echo=FALSE }
+model <- glm(data=new_db,subset=(unequivocal_pos==TRUE),sirs_score>=2~log_procal+sot)
+summary(model)
+
+exp(0.05569-0.014) ##lower limit of log10 procal
+exp(0.05569+0.014) ##upper limit of log10 procal
+
+new_db2 <- mutate(new_db, immune_sot=(immunosuppresive==TRUE|sot==TRUE))
+
+bact_txp <- filter(new_db2,unequivocal_pos==TRUE)
+```
+
+
+## Relationship of SIRS response and the likelihood of bacteremia to log(PCT).
+
+Overall, both the transplant and non-transplant patients were more likely to have a SIRS response as the log(PCT) increased, (figure x) the odds ratio for having a SIRS response was x for each unit increase in log(PCT)  (OR 1.8,1.7-1.9, p<0.05). However, this increase in the probability of having SIRS was significantly blunted in the solid transplant patients and patients on immunosuppressive agents(figure x,y). In a subset analysis patients with a history of renal transplantation (Odds ratio 0.5, CI=0.4-0.6) and liver transplantation (OR 0.53, CI:0.4-0.6) had reduced likelihood of a SIRS response at any given log(Procalcitonin) level (p<0.005).
+
+
+```{r  sot sirs  BAR GRAPH, echo=FALSE}
+
+model1 <- glm(data=new_db,(sirs_score>=2)~log10(procal_corr)+sot,"binomial")
+summary(model1)
+
+exp(0.60);exp(0.60+0.044);exp(0.60-0.044)
+exp(-0.65);exp(-.65+.11);exp(-0.65+.11)
+new_db <- tbl_df(new_db)
+new_db <- mutate(new_db,log_procal=log10(procal_corr))
+
+model2 <- glm(data=new_db,(sirs_score>=2)~log10(procal_corr)+livers+kidneys,"binomial")
+summary(model2)
+summary(model1)
+library(rms)
+library(ggplot2)
+
+##  with the rms package plot the probability of a sirs_score >2 against log_procal for the non_transplant group
+non_transplant <- filter(new_db,immunosuppresive==FALSE)
+rcsfit <- lrm(sirs_score>=2 ~ log_procal,data=non_transplant)
+rcs_pred <- Predict(rcsfit,log_procal=-2:1)
+##plot(rcs_pred)
+rcs_pred$Transplant <- FALSE
+
+
+## with the rms package plot the probability of a sirs_score >2 against log_procal for the transplant group
+
+transplant <- filter(new_db,immunosuppresive==TRUE)
+rcsfit <- lrm(sirs_score>=2 ~ log_procal,data=transplant)
+
+##plot(rcs_pred_t)
+rcs_pred_t$Transplant <- TRUE
+
+#combining the transplant and non_transplant data
+
+temp <- rbind(rcs_pred,rcs_pred_t)
+temp <- tbl_df(temp)
+names(temp)[6]<- c("set")
+
+## r convert log odds to odds 
+
+
+temp$yhat <- exp(temp$yhat)
+temp$lower <- exp(temp$lower)
+temp$upper <- exp(temp$upper)
+
+## plotting the line graph
+##graph_t1<- ggplot(temp,aes(x=log_procal,y=yhat,group=Transplant))+ geom_line() +geom_ribbon(aes(ymax=upper,ymin=lower,fill=Transplant,alpha=0.3))+scale_alpha(guide="none") + scale_fill_manual(values=c("#bdbdbd","#636363"),name="Transplant Status",labels=c("Non-Transplant","Transplant"))+xlab(c("Log Procalcitonin"))+ylab(c("Odds of SIRS>=2"))
+
+## plotting the bar graph
+graph2_1 <- ggplot(data=temp,aes(x=log_procal,y=yhat,fill=set)) + geom_bar(stat="identity",position=position_dodge()) + geom_errorbar(aes(ymin=lower,ymax=upper),width=0.2,position=position_dodge(0.9)) +ylab(label=c("Odds of SIRS Score >=2")) +xlab(label=c("Log(Serum Procalcitonin)")) + scale_fill_manual(name="Transplant Status",labels=c("Non-Transplant","Transplant"),values=c("#bdbdbd","#636363"))
+
+
+
+
+library(gridExtra)
+##multiplot1  <- grid.arrange(graph2,graph_t,ncol=2)
+```
+
+```{r sot sirs line graph 1}
+##  with the rms package plot the probability of a sirs_score >2 against log_procal for the non_transplant group
+non_transplant <- filter(new_db,sot==FALSE)
+rcsfit <- lrm(sirs_score>=2 ~ log_procal,data=non_transplant)
+rcs_pred <- Predict(rcsfit,log_procal=seq(-2,1,by=0.01))
+##plot(rcs_pred)
+rcs_pred$Transplant <- FALSE
+
+
+
+## with the rms package plot the probability of a sirs_score >2 against log_procal for the transplant group
+
+transplant <- filter(new_db,sot==TRUE)
+rcsfit <- lrm(sirs_score>=2~ log_procal,data=transplant)
+rcs_pred_t <- Predict(rcsfit,log_procal=seq(-2,1,by=0.01))
+##plot(rcs_pred_t)
+rcs_pred_t$Transplant <- TRUE
+
+
+#combining the transplant and non_transplant data
+
+temp <- rbind(rcs_pred,rcs_pred_t)
+temp <- tbl_df(temp)
+names(temp)[6]<- c("set")
+temp$yhat <- exp(temp$yhat)
+temp$lower <- exp(temp$lower)
+temp$upper <- exp(temp$upper)
+
+
+graph_t1 <- ggplot(temp,aes(x=log_procal,y=yhat,group=Transplant))+ geom_line() +geom_ribbon(aes(ymax=upper,ymin=lower,fill=Transplant,alpha=0.3)) +scale_alpha(guide="none") + scale_fill_manual(values=c("#bdbdbd","#636363"),name="Transplant Status",labels=c("Non Transplant","Transplant"))+xlab(c("Log Procalcitonin"))+ylab(c("Odds of SIRS>=2"))
+```
+
+Plot of figure 1
+
+```{r sot sirs figure 1}
+library(gridExtra)
+grid.arrange(graph2_1,graph_t1,ncol=2)
+```
+
+
+
+
+
+
+lets do the same for bactermia
+
+
+```{r sot bacteremia bar graph 2, echo=FALSE}
+
+
+library(rms)
+library(ggplot2)
+
+##  with the rms package plot the odds of bacteremia against log_procal for the non_transplant group
+non_transplant <- filter(new_db,sot==FALSE)
+rcsfit <- lrm(unequivocal_pos ~ log_procal,data=non_transplant)
+rcs_pred <- Predict(rcsfit,log_procal=-2:1)
+##plot(rcs_pred)
+rcs_pred$Transplant <- FALSE
+
+
+
+## with the rms package plot the probability of a sirs_score >2 against log_procal for the transplant group
+
+transplant <- filter(new_db,sot==TRUE)
+rcsfit <- lrm(unequivocal_pos ~ log_procal,data=transplant)
+rcs_pred_t <- Predict(rcsfit,log_procal=-2:1)
+##plot(rcs_pred_t)
+rcs_pred_t$Transplant <- TRUE
+
+
+#combining the transplant and non_transplant data
+
+temp <- rbind(rcs_pred,rcs_pred_t)
+temp <- tbl_df(temp)
+names(temp)[6]<- c("set")
+temp$yhat <- exp(temp$yhat)
+temp$lower <- exp(temp$lower)
+temp$upper <- exp(temp$upper)
+
+## graph data for line graph (continuous procal x axis)
+
+## plotting the line graph
+
+##graph_t2 <- ggplot(temp,aes(x=log_procal,y=yhat,group=Transplant))+ geom_line() +geom_ribbon(aes(ymax=upper,ymin=lower,fill=Transplant,alpha=0.3)) +scale_alpha(guide="none") + scale_fill_manual(values=c("#bdbdbd","#636363"),name="Transplant Status",labels=c("Non Transplant","Transplant"))+xlab(c("Log Procalcitonin"))+ylab(c("Odds of Bacteremia"))
+
+
+temp <- tbl_df(temp)
+names(temp)[6]<- c("set")
+
+
+graph2_2 <- ggplot(data=temp,aes(x=log_procal,y=yhat,fill=set)) + geom_bar(stat="identity",position=position_dodge()) + geom_errorbar(aes(ymin=lower,ymax=upper),width=0.2,position=position_dodge(0.9)) +ylab(label=c("Odds of Bacteremia")) +xlab(label=c("Log(Serum Procalcitonin)")) + scale_fill_manual(values=c("#bdbdbd","#636363"),name="Transplant Status",labels=c("Non Transplant","Transplant"))
+
+
+
+library(gridExtra)
+##multiplot2  <- grid.arrange(graph2,graph_t,ncol=2)
+```
+```
+
+
+
+
+```{r sot bacteremia graph line graph 1}
+##  with the rms package plot the probability of a sirs_score >2 against log_procal for the non_transplant group
+non_transplant <- filter(new_db,sot==FALSE)
+rcsfit <- lrm(unequivocal_pos ~ log_procal,data=non_transplant)
+rcs_pred <- Predict(rcsfit,log_procal=seq(-2,1,by=0.01))
+##plot(rcs_pred)
+rcs_pred$Transplant <- FALSE
+
+
+
+## with the rms package plot the probability of a sirs_score >2 against log_procal for the transplant group
+
+transplant <- filter(new_db,sot==TRUE)
+rcsfit <- lrm(unequivocal_pos~ log_procal,data=transplant)
+rcs_pred_t <- Predict(rcsfit,log_procal=seq(-2,1,by=0.01))
+##plot(rcs_pred_t)
+rcs_pred_t$Transplant <- TRUE
+
+
+#combining the transplant and non_transplant data
+
+temp <- rbind(rcs_pred,rcs_pred_t)
+temp <- tbl_df(temp)
+names(temp)[6]<- c("set")
+temp$yhat <- exp(temp$yhat)
+temp$lower <- exp(temp$lower)
+temp$upper <- exp(temp$upper)
+
+
+graph_t2 <- ggplot(temp,aes(x=log_procal,y=yhat,group=Transplant))+ geom_line() +geom_ribbon(aes(ymax=upper,ymin=lower,fill=Transplant,alpha=0.3)) +scale_alpha(guide="none") + scale_fill_manual(values=c("#bdbdbd","#636363"),name="Transplant Status",labels=c("Non Transplant","Transplant"))+xlab(c("Log Procalcitonin"))+ylab(c("Odds of Bacteremia"))
+```
+
+
+
+
+```{r sot bacteremia figure 2}
+library(gridExtra)
+ grid.arrange(graph2_2,graph_t2,ncol=2)
+```
+
+
+
+
+```{r immunosuppresive sirs  graph,echo=FALSE}
+library(rms)
+library(ggplot2)
+
+##  with the rms package plot the probability of a sirs_score >2 against log_procal for the non_transplant group
+non_transplant <- filter(new_db,immunosuppresive==FALSE)
+rcsfit <- lrm(sirs_score>=2 ~ log_procal,data=non_transplant)
+rcs_pred_bar <- Predict(rcsfit,log_procal=-2:1)
+rcs_pred_line <- Predict(rcsfit,log_procal=seq(-2,1,by=0.01))
+##plot(rcs_pred)
+rcs_pred_bar$Transplant <- FALSE
+rcs_pred_line$Transplant <- FALSE
+## with the rms package plot the probability of a sirs_score >2 against log_procal for the transplant group
+
+transplant <- filter(new_db,immunosuppresive==TRUE)
+rcsfit <- lrm(sirs_score>=2 ~ log_procal,data=transplant)
+rcs_pred_t_bar <- Predict(rcsfit,log_procal=-2:1)
+rcs_pred_t_line <- Predict(rcsfit,log_procal=seq(-2,1,by=0.01))
+##plot(rcs_pred_t)
+rcs_pred_t_bar$Transplant <- TRUE
+rcs_pred_t_line$Transplant <- TRUE
+
+#combining the transplant and non_transplant data
+
+temp_bar <- rbind(rcs_pred_bar,rcs_pred_t_bar)
+temp_bar <- tbl_df(temp_bar)
+names(temp_bar)[6]<- c("set")
+temp_bar$yhat <- exp(temp_bar$yhat)
+temp_bar$lower <- exp(temp_bar$lower)
+temp_bar$upper <- exp(temp_bar$upper)
+#combining the transplant and non_transplant data
+
+temp_line <- rbind(rcs_pred_line,rcs_pred_t_line)
+temp_line <- tbl_df(temp_line)
+names(temp_line)[6]<- c("set")
+temp_line$yhat <- exp(temp_line$yhat)
+temp_line$lower <- exp(temp_line$lower)
+temp_line$upper <- exp(temp_line$upper)
+
+
+##plotting the line graph
+graph_t3 <- ggplot(temp_line,aes(x=log_procal,y=yhat,group=Transplant))+ geom_line() +geom_ribbon(aes(ymax=upper,ymin=lower,fill=Transplant,alpha=0.3))+scale_alpha(guide="none") + scale_fill_manual(values=c("#bdbdbd","#636363"),name="Immunosuppresive Meds",labels=c("No","Yes"))+xlab(c("Log Procalcitonin"))+ylab(c("Odds of SIRS>=2"))
+
+temp_bar <- tbl_df(temp_bar)
+names(temp_bar)[6]<- c("set")
+
+
+
+
+##r plotting a bar_graph of the log_odds
+graph2_3 <- ggplot(data=temp_bar,aes(x=log_procal,y=yhat,fill=set)) + geom_bar(stat="identity",position=position_dodge()) + geom_errorbar(aes(ymin=lower,ymax=upper),width=0.2,position=position_dodge(0.9)) +ylab(label=c("Odds of SIRS>=2")) +xlab(label=c("Log(Serum Procalcitonin)")) + scale_fill_manual(name="Immunsuppresive Meds",labels=c("No","Yes"),values=c("#bdbdbd","#636363"))
+```
+
+```{r immunosuppresive sirs figure 3}
+ grid.arrange(graph2_3,graph_t3,ncol=2)
+
+```
+
+
+
+
+
+
+```{r immunsuppresive bacteremia graph}
+
+library(rms)
+library(ggplot2)
+
+##  with the rms package plot the probability of a sirs_score >2 against log_procal for the non_transplant group
+non_transplant <- filter(new_db,immunosuppresive==FALSE)
+rcsfit <- lrm(unequivocal_pos ~ log_procal,data=non_transplant)
+rcs_pred_bar <- Predict(rcsfit,log_procal=-2:1)
+rcs_pred_line <- Predict(rcsfit,log_procal=seq(-2,1,by=0.01))
+##plot(rcs_pred)
+rcs_pred_bar$Transplant <- FALSE
+rcs_pred_line$Transplant <- FALSE
+## with the rms package plot the probability of a sirs_score >2 against log_procal for the transplant group
+
+transplant <- filter(new_db,immunosuppresive==TRUE)
+rcsfit <- lrm(unequivocal_pos ~ log_procal,data=transplant)
+rcs_pred_t_bar <- Predict(rcsfit,log_procal=-2:1)
+rcs_pred_t_line <- Predict(rcsfit,log_procal=seq(-2,1,by=0.01))
+##plot(rcs_pred_t)
+rcs_pred_t_bar$Transplant <- TRUE
+rcs_pred_t_line$Transplant <- TRUE
+
+#combining the transplant and non_transplant data
+
+temp_bar <- rbind(rcs_pred_bar,rcs_pred_t_bar)
+temp_bar <- tbl_df(temp_bar)
+names(temp_bar)[6]<- c("set")
+temp_bar$yhat <- exp(temp_bar$yhat)
+temp_bar$lower <- exp(temp_bar$lower)
+temp_bar$upper <- exp(temp_bar$upper)
+#combining the transplant and non_transplant data
+
+temp_line <- rbind(rcs_pred_line,rcs_pred_t_line)
+temp_line <- tbl_df(temp_line)
+names(temp_line)[6]<- c("set")
+temp_line$yhat <- exp(temp_line$yhat)
+temp_line$lower <- exp(temp_line$lower)
+temp_line$upper <- exp(temp_line$upper)
+
+
+##plotting the line graph
+graph_t4 <- ggplot(temp_line,aes(x=log_procal,y=yhat,group=Transplant))+ geom_line() +geom_ribbon(aes(ymax=upper,ymin=lower,fill=Transplant,alpha=0.3))+scale_alpha(guide="none") + scale_fill_manual(values=c("#bdbdbd","#636363"),name="Immunosuppresive Meds",labels=c("No","Yes"))+xlab(c("Log Procalcitonin"))+ylab(c("Odds of Bacteremia"))
+
+temp_bar <- tbl_df(temp_bar)
+names(temp_bar)[6]<- c("set")
+
+
+
+
+##r plotting a bar_graph of the log_odds
+graph2_4 <- ggplot(data=temp_bar,aes(x=log_procal,y=yhat,fill=set)) + geom_bar(stat="identity",position=position_dodge()) + geom_errorbar(aes(ymin=lower,ymax=upper),width=0.2,position=position_dodge(0.9)) +ylab(label=c("Odds of Bacteremia")) +xlab(label=c("Log(Serum Procalcitonin)")) + scale_fill_manual(name="Immunsuppresive Meds",labels=c("No","Yes"),values=c("#bdbdbd","#636363"))
+
+```
+
+
+
+```{r immunsuppresive bacteremia figure4}
+grid.arrange(graph2_4,graph_t4,ncol=2)
+```
+
+
+```{r immunosuppres,eval=FALSE,echo=FALSE}
+##  with the rms package plot the probability of a sirs_score >2 against log_procal for the non_transplant group
+non_transplant <- filter(new_db,sot==FALSE)
+rcsfit <- lrm(unequivocal_pos ~ log_procal,data=non_transplant)
+rcs_pred <- Predict(rcsfit,log_procal=-2:1)
+##plot(rcs_pred)
+rcs_pred$Transplant <- FALSE
+
+
+
+## with the rms package plot the probability of a sirs_score >2 against log_procal for the transplant group
+
+transplant <- filter(new_db,sot==TRUE)
+rcsfit <- lrm(unequivocal_pos ~ log_procal,data=transplant)
+rcs_pred_t <- Predict(rcsfit,log_procal=-2:1)
+##plot(rcs_pred_t)
+rcs_pred_t$Transplant <- TRUE
+
+
+#combining the transplant and non_transplant data
+
+temp <- rbind(rcs_pred,rcs_pred_t)
+temp <- tbl_df(temp)
+names(temp)[6]<- c("set")
+temp$yhat <- exp(temp$yhat)
+temp$lower <- exp(temp$lower)
+temp$upper <- exp(temp$upper)
+
+
+## plotting the line graph
+graph_t2 <- ggplot(temp,aes(x=log_procal,y=yhat,group=Transplant))+ geom_line() +geom_ribbon(aes(ymax=upper,ymin=lower,fill=Transplant,alpha=0.3)) +scale_alpha(guide="none") + scale_fill_manual(values=c("#bdbdbd","#636363"),name="Transplant Status",labels=c("Non Transplant","Transplant"))+xlab(c("Log Procalcitonin"))+ylab(c("Odds of Bacteremia"))
+
+
+temp <- tbl_df(temp)
+names(temp)[6]<- c("set")
+
+
+graph2_2 <- ggplot(data=temp,aes(x=log_procal,y=yhat,fill=set)) + geom_bar(stat="identity",position=position_dodge()) + geom_errorbar(aes(ymin=lower,ymax=upper),width=0.2,position=position_dodge(0.9)) +ylab(label=c("Odds of Bacteremia")) +xlab(label=c("Log(Serum Procalcitonin)")) + scale_fill_manual(values=c("#bdbdbd","#636363"),name="Transplant Status",labels=c("Non Transplant","Transplant"))
+
+
+
+library(gridExtra)
+##multiplot2  <- grid.arrange(graph2,graph_t,ncol=2)
+```
+
+
+
+```{r,eval=FALSE,echo=FALSE}
+library(rms)
+library(ggplot2)
+
+##  with the rms package plot the probability of a sirs_score >2 against log_procal for the non_transplant group
+non_transplant <- filter(new_db,immunosuppresive==FALSE)
+rcsfit <- lrm(unequivocal_pos ~ log_procal,data=non_transplant)
+rcs_pred <- Predict(rcsfit,log_procal=-2:1)
+##plot(rcs_pred)
+rcs_pred$Transplant <- FALSE
+
+## with the rms package plot the probability of a sirs_score >2 against log_procal for the transplant group
+
+transplant <- filter(new_db,immunosuppresive==TRUE)
+rcsfit <- lrm(unequivocal_pos ~ log_procal,data=transplant)
+rcs_pred_t <- Predict(rcsfit,log_procal=-2:1)
+##plot(rcs_pred_t)
+rcs_pred_t$Transplant <- TRUE
+
+#combining the transplant and non_transplant data
+
+temp <- rbind(rcs_pred,rcs_pred_t)
+temp <- tbl_df(temp)
+names(temp)[6]<- c("set")
+temp$yhat <- exp(temp$yhat)
+temp$lower <- exp(temp$lower)
+temp$upper <- exp(temp$upper)
+
+
+
+## plotting the line graph
+graph_t4 <- ggplot(temp,aes(x=log_procal,y=yhat,group=Transplant))+ geom_line() +geom_ribbon(aes(ymax=upper,ymin=lower,fill=Transplant,alpha=0.3))+scale_alpha(guide="none") + scale_fill_manual(values=c("#bdbdbd","#636363"),name="Immunosuppresive Meds",labels=c("No","Yes"))+xlab(c("Log Procalcitonin"))+ylab(c("Odds of Bacteremia"))
+
+temp <- tbl_df(temp)
+names(temp)[6]<- c("set")
+
+
+
+
+##r plotting a bar_graph of the log_odds
+graph2_4 <- ggplot(data=temp,aes(x=log_procal,y=yhat,fill=set)) + geom_bar(stat="identity",position=position_dodge()) + geom_errorbar(aes(ymin=lower,ymax=upper),width=0.2,position=position_dodge(0.9)) +ylab(label=c("Odds of Bacteremia")) +xlab(label=c("Log(Serum Procalcitonin)")) + scale_fill_manual(name="Immunosuppresive Meds",labels=c("No","Yes"),values=c("#bdbdbd","#636363"))
+
+
+##multiplot3  <- grid.arrange(graph2i,graph_ti,ncol=2)
+##multiplot3
+```
+## FIGURE 1 and 2
+
+```{r FIGURE 1 AND 2,echo=FALSE}
+##figure1 <- grid.arrange(graph2_1,graph_t1,graph2_3,graph_t3,ncol=2
+                        figure2 <- grid.arrange(graph2_2,graph_t2,graph2_4,graph_t4,ncol=2)
+```
+
+## Factors predictive of bacteremia.
+
+In order to identify variables that were independently associated with the presence of bacteremia, we perfomed multivariate logistic regression modeling using log(PCT),lactate, and the SIRS score.  An increase in the log(Procalcitonin) was significantly associated with bacteremia in the non-immunosuppressed(2.2, CI:2.4-2.6,p <0.05), in sot patients (3,CI:2.2-4.2,p<0.05) and in patients on immunosuppresive agents (2.6,CI2-3.3,p<0.05).Lactate was on significantly associated with bacteremia in the subset of patients on immunsuppresive medications(1.2,CI,1.1-1.8).The SIRS score was not independently associated with bacteremia in any subset. 
+
+```{r bacteremia model Factors predictive of bacteremia in patients with Solid Organ Transplants and in patients on immunosuppressive agents. }
+
+bact_model <- glm(unequivocal_pos~log10(procal_corr)+max_lact+sirs_score,family="binomial",data=new_db, subset=(sot==FALSE&immunosuppresive==FALSE))
+summary(bact_model)
+## all comers
+exp(0.90666); exp(0.90666+0.077);exp(0.90666-0.077)
+bact_model_trans <- glm(unequivocal_pos~log10(procal_corr)+max_lact+sirs_score,family="binomial",data=new_db,subset=(sot==TRUE))
+summary(bact_model_trans)
+### odds ratio for sot
+exp(1.12607+ 0.32486);exp(1.1260-0.32486 );exp(1.12607)   
+
+bact_model_immune <- glm(unequivocal_pos~log10(procal_corr)+max_lact+sirs_score,family="binomial",data=new_db,subset=(immunosuppresive==TRUE))
+summary(bact_model_immune)
+##exp for immuno_procal
+exp(0.958513+0.23898); exp(0.958513-0.23898) ; exp(0.958513)
+## exp for immuno_lact
+exp(0.169854+ 0.071222);exp(0.169854-0.071222);exp(0.169854)
+
+
+```
+
+
+##specific SIRS components.
+To assess which specific components of the SIRS score are “blunted” in patients with solid organ transplants and patients on immunosuppressive agents we performed a multivariable logistic regression. We found that with the exception of leukopenia (WBC count <4) all the SIRS score and all its components (fever, hypothermia, leukocytosis, tachypnea, tachycardia) were had a lower odds of occurring at a given log(PCT) concentration in  both these subpopulation patients. (p<0.005).
+
+
+```{r components of sirs blunted}
+library(pROC)
+library(broom)
+library(tidyr)
+library(dplyr)
+
+model <- glm(data=new_db,unequivocal_pos~log(procal_corr),family=binomial)
+
+
+outcome <- new_db$unequivocal_pos
+
+
+rocc <- roc(outcome~procal_corr+sirs_score+max_lact,new_db,ci=TRUE)
+
+
+fever_sot <- glm(data=new_db,fever~log_procal+sot,family=binomial)
+summary(fever_sot)
+fever_sot <- tidy(fever_sot)
+
+fever_imm <-  glm(data=new_db,fever~log_procal+immunosuppresive,family=binomial)
+summary(fever_imm)
+
+fever_imm <- tidy(fever_imm)
+
+hypotherm_sot <- glm(data=new_db,hypotherm~log_procal+sot,family=binomial)
+summary(hypotherm_sot)
+
+hypotherm_sot <- tidy(hypotherm_sot)
+
+hypotherm_immune <- glm(data=new_db,hypotherm~log_procal+immunosuppresive,family=binomial)
+summary(hypotherm_immune)
+
+
+hypotherm_immune <- tidy(hypotherm_immune)
+
+tachy_sot <- glm(data=new_db,tachy~log_procal+sot,family=binomial)
+summary(tachy_sot)
+
+tachy_sot <- tidy(tachy_sot)
+tachy_immune <- glm(data=new_db,tachy~log_procal+immunosuppresive,family=binomial)
+summary(tachy_immune)
+tachy_immune <- tidy(tachy_immune)
+
+
+luekocytosis_sot <- glm(data=new_db,luekocytosis~log_procal+sot,family=binomial)
+summary(luekocytosis_sot)
+luekocytosis_sot <- tidy(luekocytosis_sot)
+
+luekocytosis_immune <- glm(data=new_db,luekocytosis~log_procal+immunosuppresive,family=binomial)
+summary(luekocytosis_immune)
+luekocytosis_immune <- tidy(luekocytosis_immune)
+
+
+luekocytosis_sot <- glm(data=new_db,luekocytosis~log_procal+sot,family=binomial)
+summary(luekocytosis_sot)
+luekocytosis_sot <- tidy(luekocytosis_sot)
+
+luekopenia_sot <- glm(data=new_db,leukopenia~log_procal+sot,family=binomial)
+summary(luekopenia_sot)
+luekopenia_sot <- tidy(luekopenia_sot)
+luekopenia_immune <- glm(data=new_db,leukopenia~log_procal+immunosuppresive,family=binomial)
+summary(luekopenia_immune)
+luekopenia_immune<- tidy(luekopenia_immune)
+
+
+tachypnea_sot <- glm(data=new_db,tachypnea~log_procal+sot,family=binomial)
+summary(tachypnea_sot)
+tachypnea_sot <- tidy(tachypnea_sot)
+tachypnea_immune <- glm(data=new_db,tachypnea~log_procal+immunosuppresive,family=binomial)
+summary(tachypnea_immune)
+tachypnea_immune<- tidy(tachypnea_immune)
+
+
+sirs_score_sot <- glm(data=new_db,sirs_score>=2~log_procal+sot,family=binomial)
+summary(sirs_score_sot)
+sirs_score_sot <- tidy(sirs_score_sot)
+sirs_score_immune <- glm(data=new_db,sirs_score>=2~log_procal+immunosuppresive,family=binomial)
+summary(sirs_score_immune)
+sirs_score_immune<- tidy(sirs_score_immune)
+
+unequivocal_pos_sot <- glm(data=new_db,unequivocal_pos~log_procal+sot,family=binomial)
+summary(unequivocal_pos_sot)
+unequivocal_pos_sot <- tidy(unequivocal_pos_sot)
+unequivocal_pos_immune <- glm(data=new_db,unequivocal_pos~log_procal+immunosuppresive,family=binomial)
+summary(unequivocal_pos_immune)
+unequivocal_pos_immune<- tidy(unequivocal_pos_immune)
+
+df <- rbind(fever_sot,fever_imm,hypotherm_sot,hypotherm_immune,tachy_sot,tachy_immune,luekocytosis_sot,luekocytosis_immune,luekopenia_sot,luekopenia_immune,tachypnea_sot,tachypnea_immune,sirs_score_sot,sirs_score_immune,unequivocal_pos_sot,unequivocal_pos_immune)
+temp <- c("fever_sot","fever_imm","hypotherm_sot","hypotherm_immune","tachy_sot","tachy_immune","luekocytosis_sot","luekocytosis_immune","luekopenia_sot","luekopenia_immune","tachypnea_sot","tachypnea_immune","sirs_score_sot","sirs_score_immune","unequivocal_pos_sot","unequivocal_pos_immune")
+names <- data.frame(rep(temp,times=c(3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3)))
+df2 <- as.data.frame(cbind(names,df))
+
+df2 <- df2 %>% mutate(p.value=round(p.value,3)) %>% mutate(std.error=round(std.error,3)) %>% mutate(estimate=round(estimate,3))
+df3 <- mutate(df2,inter=grepl(term,pattern="(Intercept)")) 
+names(df2)[1] <- c("Varible")
+names(df2)[3] <- c("Log-Odds")
+
+sot<- subset(df2,grepl(term,pattern="sotTRUE"))
+immune <- subset(df2,grepl(term,pattern="immunosuppresiveTRUE"))
+procal <- subset(df2,grepl(term,pattern="log_procal"))
+
+```
+```{r}
+table1 <- rbind(sot,immune)
+table1 <- tbl_df(table1)
+names(table1)[[3]]<-c("logodds")
+table1 <- mutate(table1,odds=exp(logodds),upci=exp(logodds+std.error),lci=exp(logodds-std.error)) 
+
+
+```
+
+
+We constructed Reciever Operator Characteristic curves for log(Serum Procalcitonin), serum Lactate, and the SIRS score in detecting/predicting the presence of bacteremia in the global dataset. The AUC for the log(Procal) was 0.7051 (95% CI: 0.67-0.73(DeLong method)). The AUC for SIRS score and the serum Lactate were 0.5718,(95% CI: 0.54-0.60). 
+```{r}
+outcome <- new_db$unequivocal_pos
+ roc(outcome~log(procal_corr),new_db,ci=TRUE,plot=TRUE,col="red")
+ roc(outcome~sirs_score,new_db,ci=TRUE,plot=TRUE,col="blue",add=TRUE)
+##roc(outcome~max_lact,new_db,ci=TRUE,plot=TRUE,col="green",add=TRUE)
+
+immune_db <- subset(new_db,immunosuppresive==TRUE)
+outcome <- immune_db$unequivocal_pos
+rocc <- roc(outcome~log(procal_corr)+sirs_score,immune_db,ci=TRUE)
+
+roc(outcome~log(procal_corr),immune_db,ci=TRUE,plot=TRUE,col="red")
+roc(outcome~sirs_score,immune_db,ci=TRUE,plot=TRUE,col="blue",add=TRUE)
+##roc(outcome~max_lact,immune_db,ci=TRUE,plot=TRUE,col="green",add=TRUE)
+```
+
+
+```{r demographics table}
+
+
+```
+
+```{r ,prob of bacteremia graph}
+##  with the rms package plot the probability of a sirs_score >2 against log_procal for the non_transplant group
+non_transplant <- filter(new_db,immunosuppresive==FALSE)
+rcsfit <- lrm((sirs_score>=2) ~ log_procal,data=non_transplant)
+rcs_pred_bar <- Predict(rcsfit,log_procal=-2:1)
+rcs_pred_line <- Predict(rcsfit,log_procal=seq(-2,1,by=0.01))
+##plot(rcs_pred)
+rcs_pred_bar$Transplant <- FALSE
+rcs_pred_line$Transplant <- FALSE
+## with the rms package plot the probability of a sirs_score >2 against log_procal for the transplant group
+
+transplant <- filter(new_db,immunosuppresive==TRUE)
+rcsfit <- lrm((sirs_score>=2)  ~ log_procal,data=transplant)
+rcs_pred_t_bar <- Predict(rcsfit,log_procal=-2:1)
+rcs_pred_t_line <- Predict(rcsfit,log_procal=seq(-2,1,by=0.01))
+##plot(rcs_pred_t)
+rcs_pred_t_bar$Transplant <- TRUE
+rcs_pred_t_line$Transplant <- TRUE
+
+#combining the transplant and non_transplant data
+
+temp_bar <- rbind(rcs_pred_bar,rcs_pred_t_bar)
+temp_bar <- tbl_df(temp_bar)
+names(temp_bar)[6]<- c("set")
+temp_bar$yhat <- exp(temp_bar$yhat)/(1+exp(temp_bar$yhat))
+temp_bar$lower <- exp(temp_bar$lower)/(1+exp(temp_bar$lower))
+temp_bar$upper <- exp(temp_bar$upper)/(1+exp(temp_bar$upper))
+#combining the transplant and non_transplant data
+
+temp_line <- rbind(rcs_pred_line,rcs_pred_t_line)
+temp_line <- tbl_df(temp_line)
+names(temp_line)[6]<- c("set")
+temp_line$yhat <- exp(temp_line$yhat)/ (1+exp(temp_line$yhat))
+temp_line$lower <- exp(temp_line$lower)/(1+exp(temp_line$lower))
+temp_line$upper <- exp(temp_line$upper)/(1+exp(temp_line$upper))
+
+
+##plotting the line graph
+graph_t5 <- ggplot(temp_line,aes(x=log_procal,y=yhat,group=Transplant))+ geom_line() +geom_ribbon(aes(ymax=upper,ymin=lower,fill=Transplant,alpha=0.3))+scale_alpha(guide="none") + scale_fill_manual(values=c("#bdbdbd","#636363"),name="Immunosuppresive Meds",labels=c("No","Yes"))+xlab(c("Log Procalcitonin"))+ylab(c("Probability of SIRS"))
+
+temp_bar <- tbl_df(temp_bar)
+names(temp_bar)[6]<- c("set")
+
+```
+
+```{r}
+##  with the rms package plot the probability of a sirs_score >2 against log_procal for the non_transplant group
+non_transplant <- filter(new_db,immunosuppresive==FALSE)
+rcsfit <- lrm((unequivocal_pos) ~ log_procal,data=non_transplant)
+rcs_pred_bar <- Predict(rcsfit,log_procal=-2:1)
+rcs_pred_line <- Predict(rcsfit,log_procal=seq(-2,1,by=0.01))
+##plot(rcs_pred)
+rcs_pred_bar$Transplant <- FALSE
+rcs_pred_line$Transplant <- FALSE
+## with the rms package plot the probability of a sirs_score >2 against log_procal for the transplant group
+
+transplant <- filter(new_db,immunosuppresive==TRUE)
+rcsfit <- lrm((unequivocal_pos)  ~ log_procal,data=transplant)
+rcs_pred_t_bar <- Predict(rcsfit,log_procal=-2:1)
+rcs_pred_t_line <- Predict(rcsfit,log_procal=seq(-2,1,by=0.01))
+##plot(rcs_pred_t)
+rcs_pred_t_bar$Transplant <- TRUE
+rcs_pred_t_line$Transplant <- TRUE
+
+#combining the transplant and non_transplant data
+
+temp_bar <- rbind(rcs_pred_bar,rcs_pred_t_bar)
+temp_bar <- tbl_df(temp_bar)
+names(temp_bar)[6]<- c("set")
+temp_bar$yhat <- exp(temp_bar$yhat)/(1+exp(temp_bar$yhat))
+temp_bar$lower <- exp(temp_bar$lower)/(1+exp(temp_bar$lower))
+temp_bar$upper <- exp(temp_bar$upper)/(1+exp(temp_bar$upper))
+#combining the transplant and non_transplant data
+
+temp_line <- rbind(rcs_pred_line,rcs_pred_t_line)
+temp_line <- tbl_df(temp_line)
+names(temp_line)[6]<- c("set")
+temp_line$yhat <- exp(temp_line$yhat)/ (1+exp(temp_line$yhat))
+temp_line$lower <- exp(temp_line$lower)/(1+exp(temp_line$lower))
+temp_line$upper <- exp(temp_line$upper)/(1+exp(temp_line$upper))
+
+
+##plotting the line graph
+graph_t6 <- ggplot(temp_line,aes(x=log_procal,y=yhat,group=Transplant))+ geom_line() +geom_ribbon(aes(ymax=upper,ymin=lower,fill=Transplant,alpha=0.3))+scale_alpha(guide="none") + scale_fill_manual(values=c("#bdbdbd","#636363"),name="Immunosuppresive Meds",labels=c("No","Yes"))+xlab(c("Log Procalcitonin"))+ylab(c("Probability of Bacteremia"))
+
+temp_bar <- tbl_df(temp_bar)
+names(temp_bar)[6]<- c("set")
+```
+
+```{r logistic table}
+bact_model_immune <- glm(unequivocal_pos~log_procal+immunosuppresive+log_procal*immunosuppresive,family="binomial",data=new_db)
+summary(bact_model_immune)
+temp <- tbl_df(tidy(bact_model_immune)) %>% mutate(odds=exp(estimate)) %>% mutate(upper_bounds=exp(std.error+estimate)) %>% mutate(lower_bounds=exp(estimate-std.error))
+
+
+sirs_model_immune <- glm((sirs_score>=2)~log10(procal_corr)+immunosuppresive+log_procal*immunosuppresive,family=binomial,data=new_db)
+summary(sirs_model_immune)
+temp2 <- tbl_df(tidy(sirs_model_immune)) %>% mutate(odds=exp(estimate)) %>% mutate(upper_bounds=exp(std.error+estimate)) %>% mutate(lower_bounds=exp(estimate-std.error))
+```
+
+```{r model 3}
+model3 <- glm(data=new_db,(unequivocal_pos==TRUE)~log_procal+sirs_score,"binomial",subset=(immunosuppresive==TRUE))
+summary(model3)
+tbl_model3<- tbl_df(tidy(model3)) %>% mutate(odds=exp(estimate)) %>% mutate(upper_bounds=exp(std.error+estimate)) %>% mutate(lower_bounds=exp(estimate-std.error))
+```
+
+```{r paper graph sept2015}
+
+##  with the rms package plot the probability of a sirs_score >2 against log_procal for the non_transplant group
+non_transplant <- filter(new_db,immunosuppresive==FALSE)
+rcsfit <- lrm((sirs_score>=2) ~ log_procal,data=non_transplant)
+rcs_pred_bar <- Predict(rcsfit,log_procal=-2:1)
+rcs_pred_line <- Predict(rcsfit,log_procal=seq(-2,1,by=0.01))
+##plot(rcs_pred)
+rcs_pred_bar$Transplant <- FALSE
+rcs_pred_line$Transplant <- FALSE
+## with the rms package plot the probability of a sirs_score >2 against log_procal for the transplant group
+
+transplant <- filter(new_db,immunosuppresive==TRUE)
+rcsfit <- lrm((sirs_score>=2)  ~ log_procal,data=transplant)
+rcs_pred_t_bar <- Predict(rcsfit,log_procal=-2:1)
+rcs_pred_t_line <- Predict(rcsfit,log_procal=seq(-2,1,by=0.01))
+##plot(rcs_pred_t)
+rcs_pred_t_bar$Transplant <- TRUE
+rcs_pred_t_line$Transplant <- TRUE
+
+#combining the transplant and non_transplant data
+
+temp_bar <- rbind(rcs_pred_bar,rcs_pred_t_bar)
+temp_bar <- tbl_df(temp_bar)
+names(temp_bar)[6]<- c("set")
+temp_bar$yhat <- exp(temp_bar$yhat)/(1+exp(temp_bar$yhat))
+temp_bar$lower <- exp(temp_bar$lower)/(1+exp(temp_bar$lower))
+temp_bar$upper <- exp(temp_bar$upper)/(1+exp(temp_bar$upper))
+#combining the transplant and non_transplant data
+
+temp_line <- rbind(rcs_pred_line,rcs_pred_t_line)
+temp_line <- tbl_df(temp_line)
+names(temp_line)[6]<- c("set")
+temp_line$yhat <- exp(temp_line$yhat)/ (1+exp(temp_line$yhat))
+temp_line$lower <- exp(temp_line$lower)/(1+exp(temp_line$lower))
+temp_line$upper <- exp(temp_line$upper)/(1+exp(temp_line$upper))
+
+
+##plotting the line graph
+graph_t5 <- ggplot(temp_line,aes(x=log_procal,y=yhat,group=Transplant))+ geom_line() +geom_ribbon(aes(ymax=upper,ymin=lower,fill=Transplant,alpha=0.3))+scale_alpha(guide="none") + scale_fill_manual(values=c("#bdbdbd","#636363"),name="Immunosuppresive Meds",labels=c("No","Yes"))+xlab(c("Log Procalcitonin"))+ylab(c("Odds of Bacteremia"))
+
+temp_bar <- tbl_df(temp_bar)
+names(temp_bar)[6]<- c("set")
+
+```
+
+```{r}
+library(splines)
+
+sirs_neg <- filter(new_db,sirs_score<2)
+sirs_pos <- filter(new_db,sirs_score>=2)
+
+
+sn_outcome <- sirs_neg$unequivocal_pos
+ roc(sn_outcome~log_procal,sirs_neg,ci=TRUE,plot=TRUE,col="blue")
+
+sp_outcome <- sirs_pos$unequivocal_pos
+ roc(sp_outcome~log_procal,sirs_pos,ci=TRUE,plot=TRUE,col="green")
+ 
+
+rcsfit <- glm((unequivocal_pos) ~ ns(log_procal,4),data=sirs_neg)
+rcs_pred_line <- predict(rcsfit,log_procal=seq(-2,1,by=0.01))
+rcs_pred_line$sirs <- c("Sirs_Positive")
+hoslem.test(rcsfit$y,fitted(rcsfit))
+
+rcsfit_t <- glm((unequivocal_pos) ~ ns(log_procal,4),data=sirs_pos)
+rcs_pred_line_t <- predict(rcsfit_t,log_procal=seq(-2,1,by=0.01))
+rcs_pred_line_t$sirs <- TRUE
+hoslem.test(rcsfit_t$y,fitted(rcsfit_t))
+
+
+```
+
+```{r}
+library(rms)
+
+rcsfit <- lrm((unequivocal_pos) ~ ns(log_procal,3),data=sirs_neg)
+rcs_pred_line <- Predict(rcsfit,log_procal=seq(-2,1,by=0.01))
+rcs_pred_line$sirs <- FALSE
+##hoslem.test(rcsfit$y,fitted(rcsfit))
+
+rcsfit_t <- lrm((unequivocal_pos) ~ ns(log_procal,4),data=sirs_pos)
+rcs_pred_line_t <- Predict(rcsfit_t,log_procal=seq(-2,1,by=0.01))
+rcs_pred_line_t$sirs <- TRUE
+##hoslem.test(rcsfit_t$y,fitted(rcsfit_t))
+
+
+
+
+
+
+temp_line <- rbind(rcs_pred_line,rcs_pred_line_t)
+temp_line <- tbl_df(temp_line)
+names(temp_line)[6]<- c("set")
+temp_line$yhat <- exp(temp_line$yhat)/ (1+exp(temp_line$yhat))
+temp_line$lower <- exp(temp_line$lower)/(1+exp(temp_line$lower))
+temp_line$upper <- exp(temp_line$upper)/(1+exp(temp_line$upper))
+
+
+##plotting the line graph
+graph_t5 <- ggplot(temp_line,aes(x=log_procal,y=yhat,group=sirs))+ geom_line() +geom_ribbon(aes(ymax=upper,ymin=lower,fill=sirs,alpha=0.3))+scale_alpha(guide="none") + scale_fill_manual(values=c("#bdbdbd","#636363"),name="SIRS Status ",labels=c("SIRS Negative","SIRS Positive"))+xlab(c("Log Procalcitonin"))+ylab(c("Probability of Bacteremia"))
+```
+
+
+```{r}
+tbl_wbc <- new_db %>%  group_by(sirs_score>=2) %>% summarise(median_wbc=median(max_wbc,na.rm = TRUE),iqr_wbc25=quantile(max_wbc,0.25,na.rm=TRUE),iqr_wbc75=quantile(max_wbc,0.75,na.rm=TRUE))
+tbl_temp <- new_db %>%  group_by(immunosuppresive) %>% summarise(median_temp=median(max_temp,na.rm = TRUE),iqr_temp25=quantile(max_temp,0.25,na.rm=TRUE),iqr_temp75=quantile(max_temp,0.75,na.rm=TRUE))
+tbl_rr<- new_db %>%  group_by(sirs_score>=2) %>% summarise(median_rr=median(max_rr,na.rm = TRUE),iqr_rr25=quantile(max_rr,0.25,na.rm=TRUE),iqr_rr75=quantile(max_rr,0.75,na.rm=TRUE))
+tbl_hr<- new_db %>%  group_by(sirs_score>=2) %>% summarise(median_hr=median(max_hr,na.rm = TRUE),iqr_hr25=quantile(max_hr,0.25,na.rm=TRUE),iqr_hr75=quantile(max_hr,0.75,na.rm=TRUE))
+```
+
+```{r table one}
+dput(names(new_db))
+
+temp <- new_db %>% mutate(neutropenic=(as.numeric(max_anc)<1.5))
+vars<- c("max_wbc", "procal_corr", "max_lact", "max_temp", "max_rr", "max_hr", "min_temp", "max_anc", "min_sbp","sirs_score")
+factorVars <-c("tachy", "fever", "hypotherm", "luekocytosis","leukopenia", "tachypnea", "sot", "immunosuppresive", "unequivocal_pos", "neutropenic","sirs_pos")
+
+allvars <-  c("max_wbc", "procal_corr", "max_lact", "max_temp", "max_rr", 
+"max_hr", "min_temp", "max_anc", "min_sbp","sirs_score","tachy", "fever", "hypotherm", "luekocytosis", "leukopenia", "tachypnea", "sot", "immunosuppresive", "unequivocal_pos", "neutropenic","sirs_pos")
+
+temp2 <- temp %>% mutate(max_wbc=as.character(max_wbc)) %>% filter(!grepl(pattern="-Inf",max_wbc)) %>% mutate(max_wbc=as.numeric(max_wbc))  %>%  mutate(sirs_pos=(sirs_score>=2))
+
+
+temp3 <- temp2[allvars] 
+library(tableone)
+tableOne <- CreateTableOne(vars = c(vars,factorVars), strata = "unequivocal_pos", data = temp3, factorVars = (factorVars))
+
+
+
+```
+
+```{r convert logical to numeric}
+cols <- sapply(temp3, is.logical)
+temp3[,cols] <- lapply(temp3[,cols], as.numeric)
+head(temp)
+
+```
+
+
+```{r}
+model3 <- glm(data=new_db,(unequivocal_pos==TRUE)~log_procal+sirs_score+max_lact+sirs_score*log_procal+sirs_score*max_lact,family="binomial")
+table2<-tidy(model3) %>% tbl_df(.) %>% mutate(or=exp(estimate)) %>% mutate(upper_or=exp(estimate+std.error)) %>% mutate(lower_or=exp(estimate-std.error))
+roc(unequivocal_pos~sirs_score,new_db,ci=TRUE,plot=TRUE,col="red")
+roc(unequivocal_pos~log10(log_procal),new_db,ci=TRUE,plot=TRUE,col="green")
+data.auc <- read.csv("~/Dropbox/auc roc sepsis roc.csv")
+
+roc(sn_outcome~log_procal,sirs_neg,ci=TRUE,plot=TRUE)
+roc(sp_outcome~log_procal,sirs_pos,ci=TRUE,plot=TRUE,lty=3,add=TRUE)
+
+
+```
+
+```{r}
+SIRS_Score <- c(0.562,0.538,0.5861)
+PCT <- c(0.6830,0.6537,0.7124)
+Lactate <- c(0.6156, 0.5867,0.6444)
+df <- as.data.frame(rbind(SIRS_Score,PCT,Lactate))
+names(df) <- c("Mean_AUC","upper","lower")
+ggplot(df,aes(x=rownames(df),y=Mean_AUC))+geom_bar(stat="identity",alpha=0.4,width=0.3)+theme_bw()+geom_errorbar(aes(ymin=lower,ymax=upper),width=0.05) + ggtitle("Diagnostic performance for predicting bacteremia")+xlab("Variable")+ylab("Mean AUC")
+
+```
+
+
+
+
+
+
+```{r}
+uni_procal<- glm(data=new_db,(unequivocal_pos==TRUE)~log_procal,family="binomial")
+uni_sirs<- glm(data=new_db,(unequivocal_pos==TRUE)~sirs_score,family="binomial")
+uni_lact<- glm(data=new_db,(unequivocal_pos==TRUE)~max_lact,family="binomial")
+tb_uni_procal <- tidy(uni_procal)
+tb_uni_sirs <- tidy(uni_sirs)
+tb_uni_lact <- tidy(uni_lact)
+uni_tbl <- rbind(tb_uni_procal,tb_uni_sirs,tb_uni_lact)
+uni_tbl <- tbl_df(uni_tbl) %>% mutate(OR=exp(estimate)) %>% mutate(UL=exp(estimate+std.error)) %>% mutate(LL=exp(estimate-std.error)) 
+```
+
+
+```{r}
+table <- temp %>% group_by(.,unequivocal_pos) %>% summarise(.,total_count=n()) 
+
+leukocytosis_t <- with(temp,table(luekocytosis,unequivocal_pos))
+
+leukopenia_t <- with(temp,table(leukopenia,unequivocal_pos))
+tachyp_t<- with(temp,table(tachypnea,unequivocal_pos))
+fever_t<- with(temp,table(fever,unequivocal_pos))
+tachy_hr_t<- with(temp,table(tachy,unequivocal_pos))
+hypo_t<- with(temp,table(hypotherm,unequivocal_pos))
+```
+
+```{r spline regression probability of bacteremia and sirs}
+library(rms)
+
+rcsfit <- lrm((unequivocal_pos) ~ ns(log_procal,3),data=new_db)
+rcs_pred_line <- Predict(rcsfit,log_procal=seq(-2,1,by=0.01))
+rcs_pred_line$sirs <- FALSE
+##hoslem.test(rcsfit$y,fitted(rcsfit))
+
+rcsfit_t <- lrm((sirs_score>=2) ~ ns(log_procal,4),data=new_db)
+rcs_pred_line_t <- Predict(rcsfit_t,log_procal=seq(-2,1,by=0.01))
+rcs_pred_line_t$sirs <- TRUE
+##hoslem.test(rcsfit_t$y,fitted(rcsfit_t))
+
+temp_line <- rbind(rcs_pred_line,rcs_pred_line_t)
+temp_line <- tbl_df(temp_line)
+names(temp_line)[6]<- c("set")
+temp_line$yhat <- exp(temp_line$yhat)/ (1+exp(temp_line$yhat))
+temp_line$lower <- exp(temp_line$lower)/(1+exp(temp_line$lower))
+temp_line$upper <- exp(temp_line$upper)/(1+exp(temp_line$upper))
+
+
+##plotting the line graph
+graph_t5 <- ggplot(temp_line,aes(x=log_procal,y=yhat,group=sirs))+ geom_line() +geom_ribbon(aes(ymax=upper,ymin=lower,fill=sirs,alpha=0.3))+scale_alpha(guide="none") + scale_fill_manual(values=c("#bdbdbd","#636363"),name="Variable",labels=c("Bacteremia","SIRS"))+xlab(c("Log Procalcitonin"))+ylab(c("Probability of Occurence")) +ggtitle("Relationship of the probability of bacteremia and SIRS to PCT concentration")
+
+## hoslem test of fit for sirs
+rcsfit_t <- glm((sirs_score>=2) ~ ns(log_procal,3),data=new_db,family = "binomial")
+
+ hoslem.test(rcsfit_t$y,fitted(rcsfit_t))
+```
+
+```{r npv and ppv}
+table1 <- with(sirs_neg,table(procal_corr<=0.1,unequivocal_pos))
+
+
+sens_analysis <- function(threshold,db)
+{
+table <- table(db$procal_corr>threshold,db$unequivocal_pos)
+
+tn <- table[1,1]
+fp <- table[2,1]
+fn <- table[1,2]
+tp <- table[2,2]
+
+senstivity <- tp/(tp+fn)
+specificity <- tn/(tn+fp)
+ppv <- tp/(tp+fp)
+npv <- tn/(tn+fn)
+
+output <- as.vector(c(tn,fp,fn,tp,senstivity,specificity,ppv,npv))
+names(output) <- c("tn","fp","fn","tp","senstivity","specificity","ppv","npv")
+return(output)
+}
+
+neg_sens <- foreach(i=seq(0.05,100,by = 0.1),.combine = cbind) %do% sens_analysis(i,db=sirs_neg)
+pos_sens <- foreach(i=seq(0.05,100,by = 0.1),.combine = cbind) %do% sens_analysis(i,db=sirs_pos)
+colnames(neg_sens) <- seq(0.05,100,by = 0.1)
+
+
+
+quant <- quantile(new_db$procal_corr,na.rm=TRUE,prob = seq(0, 1, length = 11), type = 5)
+quant <- c(0.05, 0.08, 0.1,0.16, 0.3, 0.52, 0.91, 1.77, 3.88700000000001, 10.127, 199)
+neg_sens1 <- as.data.frame(foreach(i=c(0.1),.combine=cbind) %do% sens_analysis(i,db=sirs_neg))
+##colnames(neg_sens1) <- quant
+pos_sens1 <- as.data.frame(foreach(i=c(0.1),.combine=cbind) %do% sens_analysis(i,db=sirs_pos))
+library(lsr)
+ 
+ 
+ sens1<- (cbind(neg_sens1,pos_sens1))
+ colnames(sens1) <- c("SIRS Negative","SIRS positive")
+
+table <- table(new_db$sirs_score>=2,new_db$unequivocal_pos)
+    
+    tn <- table[1,1]
+    fp <- table[2,1]
+    fn <- table[1,2]
+    tp <- table[2,2]
+    
+    senstivity <- tp/(tp+fn)
+    specificity <- tn/(tn+fp)
+    ppv <- tp/(tp+fp)
+    npv <- tn/(tn+fn)
+    
+    output <- as.vector(c(tn,fp,fn,tp,senstivity,specificity,ppv,npv))
+    names(output) <- c("tn","fp","fn","tp","senstivity","specificity","ppv","npv")
+ 
+ 
+sens1<- (cbind(neg_sens1,pos_sens1,output))
+colnames(sens1) <- c("SIRS Negative","SIRS positive","SIRS")
+```
+
